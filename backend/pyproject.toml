@@ -1,0 +1,58 @@
+# pyproject.toml — the Python project manifest for the backend.
+#
+# Think of this file as the Python equivalent of package.json in the Node/Next.js
+# world: it declares the project's name, version, the Python version it needs, and
+# the libraries it depends on. Tools like pip read this file to install the project.
+
+# --- Build system -------------------------------------------------------------
+# This tells Python HOW to build/install the project. We use setuptools, the most
+# common and beginner-friendly choice. You rarely touch this section day to day.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# --- Project metadata (PEP 621 standard) --------------------------------------
+# The [project] table describes the package: its name, version, and dependencies.
+[project]
+name = "ai-it-support-backend"
+version = "0.1.0"
+description = "FastAPI backend (modular monolith) for the AI IT Support Platform"
+# Phase 1 targets a modern Python. 3.11+ gives us clean built-in type hints
+# (e.g. dict[str, str]) used by the /health route.
+requires-python = ">=3.11"
+
+# Runtime dependencies — the libraries the app needs to actually run.
+# Kept MINIMAL on purpose: only what Phase 1 needs to serve GET /health
+# (Requirement 20.7 — exclude dependencies not required by an implemented phase).
+# Later phases add LangGraph, Claude, MongoDB, storage, etc. — NOT here yet.
+dependencies = [
+    "fastapi",            # the web framework — defines routes like GET /health
+    "uvicorn[standard]",  # the ASGI server that actually runs the FastAPI app
+    "pydantic",           # data validation FastAPI relies on
+    "pydantic-settings",  # loads config from environment variables (.env)
+    # Phase 2: the official MongoDB driver for Python. Modern pymongo (4.x)
+    # includes support for "mongodb+srv://" Atlas connection strings out of the
+    # box, so no extra is needed.
+    "pymongo>=4.6",
+    # Phase 4: the AI agent.
+    "anthropic",   # official SDK for calling the Claude LLM
+    "langgraph",   # builds the agent as a graph (state + nodes + edges)
+]
+
+# Optional dependencies — installed only when explicitly requested (e.g. for tests).
+# These are NOT needed to run the app, so they live here instead of in `dependencies`.
+[project.optional-dependencies]
+dev = [
+    "pytest",  # the test runner for the backend Test_Suite (Requirement 19.1)
+    "httpx",   # HTTP client used by FastAPI's TestClient to call GET /health in tests
+]
+
+# --- setuptools package discovery ---------------------------------------------
+# Tells setuptools that our Python package lives in the `app` folder (backend/app).
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+# --- pytest configuration -----------------------------------------------------
+# Points pytest at the tests/ folder so it knows where to look for tests.
+[tool.pytest.ini_options]
+testpaths = ["tests"]

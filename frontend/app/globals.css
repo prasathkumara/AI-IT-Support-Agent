@@ -1,0 +1,11 @@
+/*
+ * globals.css — the one stylesheet imported by the root layout so it applies to
+ * every page. The three @tailwind directives are placeholders that Tailwind
+ * replaces at build time with its generated CSS:
+ *   - base:       sensible resets + element defaults
+ *   - components: reusable component class styles
+ *   - utilities:  the single-purpose classes we use in JSX (flex, min-h-screen, ...)
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

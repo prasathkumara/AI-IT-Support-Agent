@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    // "strict": true turns on TypeScript's full type-checking (Requirement 20.2).
+    // It catches things like using a variable that might be null before you check it.
+    "strict": true,
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    // "bundler" lets Next.js's bundler resolve imports the modern way.
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    // "preserve" leaves JSX for Next.js to transform during the build.
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    // The "@/*" alias lets us import from the project root, e.g. "@/app/page".
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

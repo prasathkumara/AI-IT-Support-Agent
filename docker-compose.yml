@@ -1,0 +1,53 @@
+# docker-compose.yml — AI IT Support Platform (Phase 1)
+#
+# Docker Compose describes several containers (small, isolated machines) and how
+# to run them together with a single command. This file defines exactly TWO
+# services so you can start the whole app with one command:
+#
+#     docker compose up
+#
+# Phase 1 note: the Dockerfiles referenced below (frontend/Dockerfile and
+# backend/Dockerfile) are added in a later step. This file is intentionally a
+# clean, minimal definition of the two services (Requirement 4.5).
+
+services:
+  # ---------------------------------------------------------------------------
+  # frontend — the Next.js (App Router) app the browser loads.
+  # Serves the home page on port 3000 (Next.js default dev port).
+  # ---------------------------------------------------------------------------
+  frontend:
+    # "build.context" tells Compose which folder to build the image from.
+    # It will use frontend/Dockerfile (added in a later task).
+    build:
+      context: ./frontend
+    # "3000:3000" maps port 3000 inside the container to port 3000 on your
+    # machine, so http://localhost:3000 reaches the frontend.
+    ports:
+      - "3000:3000"
+    # The frontend talks to the backend, so start the backend first.
+    depends_on:
+      - backend
+    # Public config the browser is allowed to see. Anything prefixed with
+    # NEXT_PUBLIC_ is exposed to browser code — never put secrets here.
+    # Inside the Compose network, "backend" is the hostname of the backend service.
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://backend:8000
+    # To load local frontend config, copy frontend/.env.example to frontend/.env
+    # and uncomment the line below:
+    # env_file: ./frontend/.env
+
+  # ---------------------------------------------------------------------------
+  # backend — the FastAPI modular monolith serving the API (e.g. GET /health).
+  # Serves on port 8000 (uvicorn/FastAPI default).
+  # ---------------------------------------------------------------------------
+  backend:
+    # Builds the backend image from ./backend using backend/Dockerfile
+    # (added in a later task).
+    build:
+      context: ./backend
+    # Maps container port 8000 to your machine, so http://localhost:8000 works.
+    ports:
+      - "8000:8000"
+    # To load local backend config, copy backend/.env.example to backend/.env
+    # and uncomment the line below:
+    # env_file: ./backend/.env

@@ -1,0 +1,65 @@
+# ==============================================================================
+# Root .gitignore for the AI IT Support Platform monorepo
+# Covers the Node.js frontend and the Python backend, plus OS/editor noise.
+# (Requirement 4.2: ignore Node/Python artifacts and all .env files, but keep
+#  .env.example templates tracked.)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Node.js / Next.js (frontend/)
+# ------------------------------------------------------------------------------
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp.*
+
+# ------------------------------------------------------------------------------
+# Python (backend/)
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ------------------------------------------------------------------------------
+# Environment files
+# Ignore every .env variant so real secrets are never committed...
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# ...but keep the placeholder templates tracked. These negation (!) rules MUST
+# come AFTER the .env ignore rules above so the example files are re-included.
+!.env.example
+!*.env.example
+
+# ------------------------------------------------------------------------------
+# OS / editor noise
+# ------------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+.kiro/
+
+# ------------------------------------------------------------------------------
+# Playwright (frontend end-to-end test artifacts)
+# ------------------------------------------------------------------------------
+/test-results/
+/playwright-report/
+/playwright/.cache/
