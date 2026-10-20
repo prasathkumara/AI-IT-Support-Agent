@@ -6,14 +6,14 @@
 // without passing props through every level. Here it holds the simulated
 // signed-in user, the ticket lists and the activity feed.
 //
-// INTEGRATION STATUS (employee ticket slice):
-//   - EMPLOYEE tickets are now REAL: `myTickets` is loaded from the backend for
-//     the signed-in employee, and `addTicket` creates a ticket via the API.
-//   - ADMIN data is still MOCK: `tickets` (every ticket), `assignTicket`,
-//     `resolveTicket` and the `activity` feed stay on mock/localStorage until
-//     their backend endpoints exist. So a ticket an employee creates via the
-//     API will NOT appear in the admin views yet — that is expected for this
-//     slice and resolves once the admin endpoints are built.
+// INTEGRATION STATUS:
+//   - EMPLOYEE tickets are REAL: `myTickets` loads from the backend for the
+//     signed-in employee; `addTicket` creates via the API.
+//   - ADMIN tickets are now REAL too: `tickets` (every ticket) loads from the
+//     backend for a signed-in admin; `assignTicket` / `resolveTicket` call the
+//     backend and update state with the server response.
+//   - The `activity` feed is still MOCK (no backend endpoint yet), so the
+//     notifications it produces on assign/resolve are local-only for now.
 //
 // Roles: an "employee" sees their own tickets (`myTickets`); an "admin" sees
 // every ticket (`tickets`) and manages them.
@@ -27,15 +27,19 @@ import {
   type ReactNode,
 } from "react";
 
-import { mockActivity, mockAdmins, mockEmployee, mockTickets } from "@/data/mock-tickets";
-import { ApiError, createTicket, listEmployeeTickets } from "@/lib/api";
+import { mockActivity, mockAdmins, mockEmployee } from "@/data/mock-tickets";
+import {
+  assignTicketApi,
+  createTicket,
+  listAllTickets,
+  listEmployeeTickets,
+  resolveTicketApi,
+} from "@/lib/api";
 import { createId, nameFromEmail } from "@/lib/utils";
 import type { ActivityItem, Employee, Ticket, TicketDraft, UserRole } from "@/types";
 
-// The version prefix is bumped whenever the stored shapes change.
 const STORAGE_KEYS = {
   session: "aits.v3.session",
-  tickets: "aits.v3.tickets",
   activity: "aits.v3.activity",
 } as const;
 
@@ -47,8 +51,10 @@ export function homePathFor(role: UserRole): string {
 interface SupportContextValue {
   hydrated: boolean;
   user: Employee | null;
-  /** Every ticket in the system — what the IT admin works from (still mock). */
+  /** Every ticket in the system — loaded from the backend for admins. */
   tickets: Ticket[];
+  /** True while the admin's all-tickets list is loading from the backend. */
+  ticketsLoading: boolean;
   /** The signed-in employee's own tickets — loaded from the backend. */
   myTickets: Ticket[];
   /** True while the employee's tickets are being fetched from the backend. */
@@ -59,11 +65,11 @@ interface SupportContextValue {
   admins: Employee[];
   login: (email: string) => Employee;
   logout: () => void;
-  /** Create a ticket via the backend. Async because it calls the API. */
+  /** Create a ticket via the backend. */
   addTicket: (draft: TicketDraft) => Promise<Ticket>;
-  /** Admin only (still mock): assign a ticket to an IT admin. */
+  /** Admin: assign a ticket to an IT admin (by email). Calls the backend. */
   assignTicket: (id: string, adminEmail: string) => void;
-  /** Admin only (still mock): close a ticket. */
+  /** Admin: resolve a ticket. Calls the backend. */
   resolveTicket: (id: string) => void;
 }
 
@@ -90,12 +96,13 @@ function writeStorage(key: string, value: unknown): void {
 export function SupportProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [user, setUser] = useState<Employee | null>(null);
-  // ADMIN tickets + activity stay on mock for now.
-  const [tickets, setTickets] = useState<Ticket[]>(mockTickets);
-  const [activity, setActivity] = useState<ActivityItem[]>(mockActivity);
-  // EMPLOYEE tickets come from the backend.
+  // Tickets now come from the backend. `tickets` = all (admin), `myTickets` = mine.
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
   const [myTickets, setMyTickets] = useState<Ticket[]>([]);
   const [myTicketsLoading, setMyTicketsLoading] = useState(false);
+  // Activity feed stays mock for now.
+  const [activity, setActivity] = useState<ActivityItem[]>(mockActivity);
 
   // Load persisted state once, after the first client render.
   useEffect(() => {
@@ -105,8 +112,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
-  // Whenever we have a signed-in employee, (re)load THEIR tickets from the API.
-  // Admins don't use myTickets, so we only fetch for employees.
+  // Load the signed-in EMPLOYEE's own tickets from the backend.
   useEffect(() => {
     if (!user || user.role !== "employee") {
       setMyTickets([]);
@@ -119,11 +125,33 @@ export function SupportProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setMyTickets(list);
       })
       .catch(() => {
-        // On failure (backend down), fall back to an empty list rather than crash.
         if (!cancelled) setMyTickets([]);
       })
       .finally(() => {
         if (!cancelled) setMyTicketsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // Load ALL tickets from the backend when an ADMIN is signed in.
+  useEffect(() => {
+    if (!user || user.role !== "admin") {
+      setTickets([]);
+      return;
+    }
+    let cancelled = false;
+    setTicketsLoading(true);
+    listAllTickets()
+      .then((list) => {
+        if (!cancelled) setTickets(list);
+      })
+      .catch(() => {
+        if (!cancelled) setTickets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTicketsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -153,8 +181,14 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Create a ticket on the backend, then add the REAL returned ticket (with its
-  // server-generated id like TICKET-1) to the employee's list.
+  // Replace a ticket in BOTH lists with the server-updated version.
+  const applyTicketUpdate = useCallback((updated: Ticket) => {
+    const swap = (list: Ticket[]) => list.map((t) => (t.id === updated.id ? updated : t));
+    setTickets(swap);
+    setMyTickets(swap);
+  }, []);
+
+  // Create a ticket on the backend, then add the REAL returned ticket.
   const addTicket = useCallback(
     async (draft: TicketDraft): Promise<Ticket> => {
       const requester = user ?? mockEmployee;
@@ -166,8 +200,9 @@ export function SupportProvider({ children }: { children: ReactNode }) {
         category: draft.category,
         priority: draft.priority,
       });
-      // Prepend so the newest ticket shows first, matching the list order.
       setMyTickets((prev) => [created, ...prev]);
+      // If an admin happens to be viewing, also show it in the all-tickets list.
+      setTickets((prev) => [created, ...prev]);
       pushActivity({
         id: createId("act"),
         kind: "ticket-created",
@@ -181,53 +216,57 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     [user, pushActivity],
   );
 
-  // --- ADMIN actions below are UNCHANGED (still mock) ----------------------
-  const patchTicket = useCallback((id: string, patch: Partial<Ticket>) => {
-    setTickets((prev) => {
-      const next = prev.map((t) => (t.id === id ? { ...t, ...patch } : t));
-      writeStorage(STORAGE_KEYS.tickets, next);
-      return next;
-    });
-  }, []);
-
+  // ADMIN: assign to an IT admin (looked up by email from the admin list).
+  // The UI calls this fire-and-forget (like the mock did); we do the async
+  // backend call internally and update state with the server response.
   const assignTicket = useCallback(
     (id: string, adminEmail: string) => {
       const ticket = tickets.find((t) => t.id === id);
       const admin = mockAdmins.find((a) => a.email === adminEmail);
       if (!ticket || !admin || ticket.status === "Resolved" || ticket.assigneeEmail === admin.email) return;
-      patchTicket(id, { assigneeName: admin.name, assigneeEmail: admin.email, status: "In Progress" });
-      pushActivity({
-        id: createId("act"),
-        kind: "ticket-update",
-        recipientEmail: ticket.requesterEmail,
-        title: `${id} assigned to ${admin.name}`,
-        description: `${admin.name} from IT is now working on "${ticket.subject}".`,
-        createdAt: new Date().toISOString(),
-      });
+      (async () => {
+        try {
+          const updated = await assignTicketApi(id, admin.name, admin.email);
+          applyTicketUpdate(updated);
+          pushActivity({
+            id: createId("act"),
+            kind: "ticket-update",
+            recipientEmail: ticket.requesterEmail,
+            title: `${id} assigned to ${admin.name}`,
+            description: `${admin.name} from IT is now working on "${ticket.subject}".`,
+            createdAt: new Date().toISOString(),
+          });
+        } catch {
+          // On failure, leave state unchanged. A toast/error UI could go here.
+        }
+      })();
     },
-    [tickets, patchTicket, pushActivity],
+    [tickets, applyTicketUpdate, pushActivity],
   );
 
+  // ADMIN: resolve a ticket. The signed-in admin is credited as the resolver.
   const resolveTicket = useCallback(
     (id: string) => {
       const ticket = tickets.find((t) => t.id === id);
       if (!ticket || !user || ticket.status === "Resolved") return;
-      patchTicket(id, {
-        status: "Resolved",
-        resolvedAt: new Date().toISOString(),
-        assigneeName: ticket.assigneeName ?? user.name,
-        assigneeEmail: ticket.assigneeEmail ?? user.email,
-      });
-      pushActivity({
-        id: createId("act"),
-        kind: "ticket-update",
-        recipientEmail: ticket.requesterEmail,
-        title: `${id} was resolved`,
-        description: `${user.name} resolved "${ticket.subject}".`,
-        createdAt: new Date().toISOString(),
-      });
+      (async () => {
+        try {
+          const updated = await resolveTicketApi(id, user.name, user.email);
+          applyTicketUpdate(updated);
+          pushActivity({
+            id: createId("act"),
+            kind: "ticket-update",
+            recipientEmail: ticket.requesterEmail,
+            title: `${id} was resolved`,
+            description: `${user.name} resolved "${ticket.subject}".`,
+            createdAt: new Date().toISOString(),
+          });
+        } catch {
+          // On failure, leave state unchanged.
+        }
+      })();
     },
-    [tickets, user, patchTicket, pushActivity],
+    [tickets, user, applyTicketUpdate, pushActivity],
   );
 
   const visibleActivity = useMemo(
@@ -240,6 +279,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
       hydrated,
       user,
       tickets,
+      ticketsLoading,
       myTickets,
       myTicketsLoading,
       activity: visibleActivity,
@@ -250,7 +290,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
       assignTicket,
       resolveTicket,
     }),
-    [hydrated, user, tickets, myTickets, myTicketsLoading, visibleActivity, login, logout, addTicket, assignTicket, resolveTicket],
+    [hydrated, user, tickets, ticketsLoading, myTickets, myTicketsLoading, visibleActivity, login, logout, addTicket, assignTicket, resolveTicket],
   );
 
   return <SupportContext.Provider value={value}>{children}</SupportContext.Provider>;
@@ -263,3 +303,4 @@ export function useSupport(): SupportContextValue {
   }
   return context;
 }
+

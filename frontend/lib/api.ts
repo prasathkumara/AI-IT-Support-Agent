@@ -220,3 +220,70 @@ export async function getTicket(ticketId: string): Promise<Ticket> {
   return apiTicketToTicket(ticket);
 }
 
+
+// A small PATCH helper (used for admin assign/resolve, which partially update
+// an existing ticket). Same error handling as the POST/GET helpers above.
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError("Could not reach the server. Is the backend running?");
+  }
+  if (!response.ok) {
+    let detail = `Request failed (HTTP ${response.status}).`;
+    try {
+      const data = await response.json();
+      if (data?.detail) detail = String(data.detail);
+    } catch {
+      // no JSON body; keep generic message
+    }
+    throw new ApiError(detail, response.status);
+  }
+  return (await response.json()) as T;
+}
+
+/**
+ * List EVERY ticket, newest first (admin view).
+ * Mirrors: GET /tickets/all
+ */
+export async function listAllTickets(): Promise<Ticket[]> {
+  const tickets = await getJson<ApiTicket[]>("/tickets/all");
+  return tickets.map(apiTicketToTicket);
+}
+
+/**
+ * Assign a ticket to an IT admin. An Open ticket becomes In Progress.
+ * Mirrors: PATCH /tickets/{id}/assign  { assignee_name, assignee_email }
+ */
+export async function assignTicketApi(
+  ticketId: string,
+  assigneeName: string,
+  assigneeEmail: string,
+): Promise<Ticket> {
+  const updated = await patchJson<ApiTicket>(
+    `/tickets/${encodeURIComponent(ticketId)}/assign`,
+    { assignee_name: assigneeName, assignee_email: assigneeEmail },
+  );
+  return apiTicketToTicket(updated);
+}
+
+/**
+ * Mark a ticket resolved. If unassigned, the resolver becomes the assignee.
+ * Mirrors: PATCH /tickets/{id}/resolve  { resolver_name?, resolver_email? }
+ */
+export async function resolveTicketApi(
+  ticketId: string,
+  resolverName?: string,
+  resolverEmail?: string,
+): Promise<Ticket> {
+  const updated = await patchJson<ApiTicket>(
+    `/tickets/${encodeURIComponent(ticketId)}/resolve`,
+    { resolver_name: resolverName ?? null, resolver_email: resolverEmail ?? null },
+  );
+  return apiTicketToTicket(updated);
+}
