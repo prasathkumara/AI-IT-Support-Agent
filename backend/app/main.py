@@ -31,7 +31,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import conversations, health, knowledge
+from app.api.routes import conversations, health, knowledge, tickets
 from app.core.config import get_settings
 from app.db.mongodb import close_mongo_connection, connect_to_mongo
 
@@ -66,3 +66,4 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(conversations.router)
 app.include_router(knowledge.router)
+app.include_router(tickets.router)
