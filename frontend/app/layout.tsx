@@ -1,4 +1,4 @@
-// layout.tsx is a special App Router file: it is the shared shell that WRAPS
+﻿// layout.tsx is a special App Router file: it is the shared shell that WRAPS
 // every page in the app. Whatever a page returns is passed in here as `children`
 // and rendered inside <body>. Because it wraps everything, this is the natural
 // place to import global styles once and to declare page metadata.
@@ -10,7 +10,7 @@ import { SupportProvider } from "@/context/SupportContext";
 import "./globals.css";
 
 // Next.js reads this exported `metadata` object to set things like the browser
-// tab title (Requirement 2.2 — the platform name).
+// tab title (Requirement 2.2 â€” the platform name).
 export const metadata: Metadata = {
   title: "AI IT Support Platform",
   description: "AI-first IT support for employees.",
@@ -30,9 +30,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
+      <body suppressHydrationWarning>
         <SupportProvider>{children}</SupportProvider>
       </body>
     </html>
   );
 }
+

@@ -1,19 +1,27 @@
-"use client";
+﻿"use client";
 
 // useSupportChat — the conversation "state machine" behind the AI Support page.
 //
 // It owns the message list and walks through the resolution flow:
-//   describe issue → troubleshooting steps → "Did this solve your issue?"
-//     → yes: success message + offer a new chat
-//     → no:  escalation message + ticket draft → confirm (create) / cancel
+//   describe issue -> AI answer -> "Did this solve your issue?"
+//     -> yes: success message + offer a new chat
+//     -> no:  escalation message + ticket draft -> confirm (create) / cancel
 //
-// All responses come from lib/mock-ai.ts; ticket creation goes through the
-// shared SupportContext. The chat components only render what this returns.
+// INTEGRATION (Phase: wire chat to real backend):
+//   The AI ANSWER now comes from the real backend (RAG + Claude) via lib/api.ts,
+//   instead of the local mock in lib/mock-ai.ts. Everything ELSE — the resolve
+//   question, the ticket draft, ticket creation through SupportContext — is
+//   unchanged and still frontend-only (the tickets backend comes later).
+//
+//   We still use matchScenario() from the mock to CATEGORISE the issue for the
+//   ticket draft (category/priority/title). That is pure frontend logic and is
+//   independent of where the answer text is generated.
 import { useCallback, useRef, useState } from "react";
 
 import { useSupport } from "@/context/SupportContext";
-import { assistantGreeting, resolutionQuestion, suggestedQuestions } from "@/data/mock-ai-responses";
-import { buildTicketDraft, getMockResponse, mockResponseDelay } from "@/lib/mock-ai";
+import { resolutionQuestion, suggestedQuestions } from "@/data/mock-ai-responses";
+import { createConversation, latestAssistantReply, sendChatMessage, ApiError } from "@/lib/api";
+import { buildTicketDraft, matchScenario } from "@/lib/mock-ai";
 import { createId } from "@/lib/utils";
 import type { ChatMessage, ChatPhase, TicketDraft, TroubleshootingScenario } from "@/types";
 
@@ -24,7 +32,11 @@ function makeMessage(message: NewMessage): ChatMessage {
 }
 
 function greeting(): ChatMessage {
-  return makeMessage({ role: "assistant", content: assistantGreeting, suggestions: suggestedQuestions });
+  return makeMessage({
+    role: "assistant",
+    content: "Hi! I'm your AI IT assistant. Describe the issue you're running into and I'll help you fix it.",
+    suggestions: suggestedQuestions,
+  });
 }
 
 interface ActiveIssue {
@@ -33,7 +45,7 @@ interface ActiveIssue {
 }
 
 export function useSupportChat() {
-  const { tickets, addTicket } = useSupport();
+  const { user, tickets, addTicket } = useSupport();
   const [messages, setMessages] = useState<ChatMessage[]>(() => [greeting()]);
   const [phase, setPhase] = useState<ChatPhase>("idle");
   const [isTyping, setIsTyping] = useState(false);
@@ -41,91 +53,104 @@ export function useSupportChat() {
   const [isCreatingTicket, setIsCreatingTicket] = useState(false);
   const activeIssue = useRef<ActiveIssue | null>(null);
 
-  // Bumped on "New chat" so replies scheduled for the old conversation are dropped.
-  const conversationId = useRef(0);
+  // The backend conversation id. Created lazily on the first message so an
+  // opened-but-unused chat does not create an empty conversation. Reset on "New chat".
+  const conversationId = useRef<string | null>(null);
+
+  // Bumped on "New chat" so a reply arriving late for an old conversation is dropped.
+  const turnId = useRef(0);
 
   const append = useCallback((...next: NewMessage[]) => {
     setMessages((prev) => [...prev, ...next.map(makeMessage)]);
   }, []);
 
-  /** Shows the typing indicator, then runs `respond` after a short delay. */
-  const replyAfterDelay = useCallback((respond: () => void, delay = mockResponseDelay()) => {
-    const id = conversationId.current;
-    setIsTyping(true);
-    window.setTimeout(() => {
-      if (id !== conversationId.current) return;
-      setIsTyping(false);
-      respond();
-    }, delay);
-  }, []);
+  // Ensure a backend conversation exists; create it on first use. Uses the
+  // signed-in user's email as the employee_id (works until real auth exists).
+  const ensureConversation = useCallback(async (): Promise<string> => {
+    if (conversationId.current) return conversationId.current;
+    const employeeId = user?.email ?? "anonymous@local";
+    const convo = await createConversation(employeeId);
+    conversationId.current = convo.id;
+    return convo.id;
+  }, [user]);
 
   const sendMessage = useCallback(
     (raw: string) => {
       const text = raw.trim();
       if (!text || isTyping || isCreatingTicket) return;
 
+      const id = ++turnId.current;
       append({ role: "user", content: text });
       // A new message replaces any pending question or ticket draft.
       setPhase("idle");
       setDraft(null);
+      setIsTyping(true);
 
-      replyAfterDelay(() => {
-        const response = getMockResponse(text);
-        if (response.kind === "scenario") {
-          activeIssue.current = { text, scenario: response.scenario };
+      // Fire the real backend call. We keep track of the issue + a mock-derived
+      // scenario so the (unchanged) ticket flow can categorise it later.
+      (async () => {
+        try {
+          const convoId = await ensureConversation();
+          const conversation = await sendChatMessage(convoId, text);
+          if (id !== turnId.current) return; // a newer turn / new chat superseded this
+          const reply = latestAssistantReply(conversation) || "I'm sorry, I couldn't generate a reply. Please try again.";
+
+          activeIssue.current = { text, scenario: matchScenario(text) };
+          setIsTyping(false);
           append(
-            { role: "assistant", content: response.message, steps: response.steps },
+            { role: "assistant", content: reply },
             { role: "assistant", content: resolutionQuestion },
           );
           setPhase("awaiting-resolution");
-        } else {
-          activeIssue.current = null;
-          append({ role: "assistant", content: response.message, suggestions: response.suggestions });
+        } catch (error) {
+          if (id !== turnId.current) return;
+          setIsTyping(false);
+          const message =
+            error instanceof ApiError
+              ? `Sorry, I hit a problem reaching the assistant: ${error.message}`
+              : "Sorry, something went wrong. Please try again.";
+          append({ role: "assistant", content: message, suggestions: suggestedQuestions });
+          setPhase("idle");
         }
-      });
+      })();
     },
-    [append, isCreatingTicket, isTyping, replyAfterDelay],
+    [append, ensureConversation, isCreatingTicket, isTyping],
   );
 
   const markResolved = useCallback(() => {
     if (phase !== "awaiting-resolution" || isTyping) return;
     append({ role: "user", content: "Yes, it works" });
     setPhase("idle");
-    replyAfterDelay(() => {
-      activeIssue.current = null;
-      append({
-        role: "assistant",
-        tone: "success",
-        content:
-          "Great news — I'm glad that fixed it! Your issue is marked as resolved, so no ticket is needed. Is there anything else I can help you with?",
-        offerNewChat: true,
-      });
-    }, 700);
-  }, [append, isTyping, phase, replyAfterDelay]);
+    activeIssue.current = null;
+    append({
+      role: "assistant",
+      tone: "success",
+      content:
+        "Great news — I'm glad that fixed it! Your issue is marked as resolved, so no ticket is needed. Is there anything else I can help you with?",
+      offerNewChat: true,
+    });
+  }, [append, isTyping, phase]);
 
   const markNotResolved = useCallback(() => {
     if (phase !== "awaiting-resolution" || isTyping) return;
     const issue = activeIssue.current;
     append({ role: "user", content: "No, still an issue" });
-    setPhase("idle");
-    replyAfterDelay(() => {
-      append({
-        role: "assistant",
-        content:
-          "Sorry that didn't solve it. I can escalate this to the IT team so a specialist can take a look. I've prepared a ticket with the details below — please review it and confirm to submit.",
-      });
-      setDraft(buildTicketDraft(issue?.text ?? "Issue not resolved by AI troubleshooting.", issue?.scenario, tickets));
-      setPhase("confirming-ticket");
+    append({
+      role: "assistant",
+      content:
+        "Sorry that didn't solve it. I can escalate this to the IT team so a specialist can take a look. I've prepared a ticket with the details below — please review it and confirm to submit.",
     });
-  }, [append, isTyping, phase, replyAfterDelay, tickets]);
+    setDraft(buildTicketDraft(issue?.text ?? "Issue not resolved by AI troubleshooting.", issue?.scenario, tickets));
+    setPhase("confirming-ticket");
+  }, [append, isTyping, phase, tickets]);
 
   const confirmTicket = useCallback(() => {
     if (!draft || isCreatingTicket) return;
-    const id = conversationId.current;
+    const id = turnId.current;
     setIsCreatingTicket(true);
-    // Simulated submission delay — nothing leaves the browser.
+    // Simulated submission delay — ticket creation is still frontend-only.
     window.setTimeout(() => {
-      if (id !== conversationId.current) return;
+      if (id !== turnId.current) return;
       const ticket = addTicket(draft);
       setIsCreatingTicket(false);
       setDraft(null);
@@ -157,7 +182,8 @@ export function useSupportChat() {
   }, [append, draft, isCreatingTicket]);
 
   const newChat = useCallback(() => {
-    conversationId.current += 1;
+    turnId.current += 1;
+    conversationId.current = null; // start a fresh backend conversation next time
     activeIssue.current = null;
     setIsTyping(false);
     setIsCreatingTicket(false);

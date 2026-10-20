@@ -1,4 +1,4 @@
-"""Application configuration (Phase 2).
+﻿"""Application configuration (Phase 2).
 
 WHAT THIS FILE DOES
 -------------------
@@ -17,7 +17,7 @@ NEW CONCEPT: Pydantic Settings
 
 WHY A CACHED getter (get_settings)
     We only want to read and validate config ONCE, then reuse it. `lru_cache`
-    remembers the first result and returns the same Settings object every time —
+    remembers the first result and returns the same Settings object every time -
     cheap and consistent. FastAPI can also use this with dependency injection.
 """
 
@@ -34,11 +34,6 @@ class Settings(BaseSettings):
     attribute `mongodb_uri` is filled from `MONGODB_URI`.
     """
 
-    # model_config tells pydantic-settings WHERE to load values from and how to
-    # behave. env_file=".env" means "also read a file named .env in the folder
-    # the app runs from". extra="ignore" means "don't error on env vars we
-    # haven't declared here yet" — handy because our .env lists future-phase
-    # variables (Claude, storage, etc.) we haven't modeled yet.
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -47,54 +42,48 @@ class Settings(BaseSettings):
     )
 
     # --- Database (MongoDB Atlas) --- required in Phase 2 --------------------
-    # The full Atlas connection string, e.g.
-    #   mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
     mongodb_uri: str = ""
 
     # The logical database name used inside the cluster.
     mongodb_database: str = "ai_it_support"
 
+    # --- CORS (Cross-Origin Resource Sharing) --- needed once a browser UI calls us
+    # NEW CONCEPT: CORS allowed origins.
+    #   A browser blocks a page on one origin (scheme+host+port) from calling an
+    #   API on a different origin unless the API says that origin is allowed. Our
+    #   Next.js frontend runs on http://localhost:3000 while this API runs on
+    #   :8000 - different ports = different origins - so we must list the
+    #   frontend origin here. This is read as a COMMA-SEPARATED string from the
+    #   CORS_ALLOW_ORIGINS env var and split into a list by the property below,
+    #   so you can add your deployed frontend URL later without code changes.
+    cors_allow_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Split the comma-separated origins string into a clean list."""
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
     # --- Claude LLM (Anthropic) --- required in Phase 4 ----------------------
-    # Your Anthropic API key (starts with "sk-ant-..."). Read from .env; never
-    # hardcoded. Empty by default so the app still starts without it (only the
-    # chat endpoint needs it).
     claude_api_key: str = ""
 
     # Which Claude model to use. Set this in .env to a model your Anthropic
-    # account can access (list them with `client.models.list()`). Model names
-    # change over time, so we keep it configurable rather than hardcoded.
-    # Default is a fast, low-cost Haiku model — good for development/testing.
+    # account can access. Default is a fast, low-cost Haiku model.
     claude_model: str = "claude-haiku-4-5-20251001"
 
     # --- Embeddings (RAG subsystem) --- required in Phase 2 ------------------
-    # RAG turns text into "embeddings" (vectors of numbers) so similar meanings
-    # sit close together, which is what makes vector search possible.
-    #
-    # These three values sit behind a config-selected provider abstraction
-    # (Requirement 9.5): the RAG code reads them instead of hardcoding a model,
-    # so we can swap the local model for Voyage AI / OpenAI later by changing
-    # config only — not the RAG logic.
-
-    # Which embedding backend to use. "local" = offline sentence-transformers
-    # (no API key, free). A future value like "voyage"/"openai" would select a
-    # different provider implementation.
+    # Which embedding backend to use. "local" = offline sentence-transformers.
     embedding_provider: str = "local"
 
-    # The specific model the chosen provider loads. For the local provider this
-    # is a sentence-transformers model name. all-MiniLM-L6-v2 is small, fast,
-    # and a common default for learning/RAG.
+    # The specific model the chosen provider loads.
     embedding_model: str = "all-MiniLM-L6-v2"
 
-    # The length of every embedding vector this model produces. all-MiniLM-L6-v2
-    # always outputs 384 numbers. This MUST match the MongoDB Atlas vector index
-    # dimension (set up in a later task), or vector search will reject the data.
+    # The length of every embedding vector this model produces. MUST match the
+    # MongoDB Atlas vector index dimension.
     embedding_dimension: int = 384
 
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return the app settings, building them once and caching the result.
-
-    Call this anywhere you need config: `from app.core.config import get_settings`.
-    """
+    """Return the app settings, building them once and caching the result."""
     return Settings()
+
