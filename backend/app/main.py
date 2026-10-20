@@ -27,7 +27,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 
-from app.api.routes import conversations, health
+from app.api.routes import conversations, health, knowledge
 from app.db.mongodb import close_mongo_connection, connect_to_mongo
 
 
@@ -49,3 +49,4 @@ app = FastAPI(title="AI IT Support Platform", lifespan=lifespan)
 # themselves live in their own files (health.py, conversations.py).
 app.include_router(health.router)
 app.include_router(conversations.router)
+app.include_router(knowledge.router)

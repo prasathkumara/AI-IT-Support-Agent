@@ -49,12 +49,42 @@ class ClaudeError(Exception):
     """
 
 
-def generate_reply(messages: list[dict[str, str]]) -> str:
+def _build_system_prompt(context: str) -> str:
+    """Combine the base system prompt with any retrieved company knowledge.
+
+    WHY this lives here (Requirement 20.3): injecting the retrieved text into
+    the prompt is part of "talking to Claude", so it belongs in this file — the
+    one place that owns the Claude conversation. The RAG side only FINDS the
+    text; it never decides how the prompt is phrased.
+
+    If `context` is empty (nothing relevant was retrieved), we return the base
+    prompt unchanged so Claude still answers normally.
+    """
+    if not context or not context.strip():
+        return SYSTEM_PROMPT
+
+    # Append the retrieved knowledge as its own clearly labelled section. Telling
+    # Claude where the text came from helps it prefer OUR documents over its
+    # general training when answering.
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        "Use the following company knowledge to answer. Prefer it over general "
+        "knowledge, and if it doesn't cover the question, say so:\n\n"
+        f"{context}"
+    )
+
+
+def generate_reply(messages: list[dict[str, str]], context: str = "") -> str:
     """Send the conversation messages to Claude and return its reply text.
 
     `messages` is a list like:
         [{"role": "user", "content": "my vpn won't connect"}, ...]
     We return just the assistant's reply as a plain string.
+
+    `context` is optional company knowledge retrieved by the RAG step (task 8.1).
+    When provided, we weave it into the system prompt so Claude can reason over
+    OUR documents. It defaults to "" so older callers (and tests) that don't do
+    retrieval keep working unchanged.
 
     If the Claude call fails (bad model name, auth problem, network, etc.), we
     wrap it in a ClaudeError with a readable message rather than letting a raw
@@ -63,12 +93,15 @@ def generate_reply(messages: list[dict[str, str]]) -> str:
     settings = get_settings()
     client = _get_client()
 
+    # Build the system prompt once, folding in the retrieved context if any.
+    system_prompt = _build_system_prompt(context)
+
     try:
         # Call the Claude "messages" API. max_tokens caps the reply length.
         response = client.messages.create(
             model=settings.claude_model,
             max_tokens=1024,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=messages,
         )
     except AnthropicError as exc:

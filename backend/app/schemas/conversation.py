@@ -16,7 +16,7 @@ FastAPI uses these schemas to:
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from app.models.conversation import ConversationStatus, Message
 
@@ -40,6 +40,18 @@ class ConversationResponse(BaseModel):
     messages: list[Message]
     created_at: datetime
     updated_at: datetime
+
+    # NEW CONCEPT: computed_field.
+    # Instead of a plain field that callers must pass in, this is DERIVED from
+    # the data we already have (`messages`). Pydantic runs this method when it
+    # serializes the response, so it always appears in the JSON output and on
+    # the /docs page — but no route has to supply it. That means we can't ever
+    # forget to set it, and we can't get the "field required / missing" error.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def message_count(self) -> int:
+        """How many messages this conversation currently has."""
+        return len(self.messages)
 
 
 class SendMessageRequest(BaseModel):

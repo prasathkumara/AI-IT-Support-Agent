@@ -37,6 +37,10 @@ dependencies = [
     # Phase 4: the AI agent.
     "anthropic",   # official SDK for calling the Claude LLM
     "langgraph",   # builds the agent as a graph (state + nodes + edges)
+    # Phase 2 (RAG): turns text into embedding vectors locally (offline, free).
+    # Anthropic has no embeddings API, so we use this local model behind a
+    # config-selected provider abstraction (Requirement 9.5) and can swap it later.
+    "sentence-transformers",
 ]
 
 # Optional dependencies — installed only when explicitly requested (e.g. for tests).

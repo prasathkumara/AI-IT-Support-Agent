@@ -66,6 +66,30 @@ class Settings(BaseSettings):
     # Default is a fast, low-cost Haiku model — good for development/testing.
     claude_model: str = "claude-haiku-4-5-20251001"
 
+    # --- Embeddings (RAG subsystem) --- required in Phase 2 ------------------
+    # RAG turns text into "embeddings" (vectors of numbers) so similar meanings
+    # sit close together, which is what makes vector search possible.
+    #
+    # These three values sit behind a config-selected provider abstraction
+    # (Requirement 9.5): the RAG code reads them instead of hardcoding a model,
+    # so we can swap the local model for Voyage AI / OpenAI later by changing
+    # config only — not the RAG logic.
+
+    # Which embedding backend to use. "local" = offline sentence-transformers
+    # (no API key, free). A future value like "voyage"/"openai" would select a
+    # different provider implementation.
+    embedding_provider: str = "local"
+
+    # The specific model the chosen provider loads. For the local provider this
+    # is a sentence-transformers model name. all-MiniLM-L6-v2 is small, fast,
+    # and a common default for learning/RAG.
+    embedding_model: str = "all-MiniLM-L6-v2"
+
+    # The length of every embedding vector this model produces. all-MiniLM-L6-v2
+    # always outputs 384 numbers. This MUST match the MongoDB Atlas vector index
+    # dimension (set up in a later task), or vector search will reject the data.
+    embedding_dimension: int = 384
+
 
 @lru_cache
 def get_settings() -> Settings:
