@@ -65,11 +65,9 @@ export function buildTicketDraft(
   existing: Ticket[],
 ): TicketDraft {
   return {
-    id: generateTicketId(existing),
     subject: scenario?.ticketTitle ?? truncate(issueText, 60),
     category: scenario?.category ?? "Other",
     priority: scenario?.priority ?? "Medium",
-    status: "Open",
     description: scenario
       ? `${issueText}\n\nThe employee tried the AI troubleshooting steps for "${scenario.label}" but the issue persists.`
       : issueText,

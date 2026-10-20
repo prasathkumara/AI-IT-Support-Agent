@@ -1,16 +1,15 @@
-"use client";
+﻿"use client";
 
 // NewTicketForm — lets an employee raise a ticket directly, without going
-// through the AI chat first. The ticket is saved through SupportContext, which
-// stamps the signed-in employee as the requester so the IT admin sees who
-// raised it.
+// through the AI chat first. The ticket is created on the BACKEND through
+// SupportContext.addTicket (POST /tickets), which stamps the signed-in employee
+// as the requester and returns the server-generated id (e.g. TICKET-1).
 import { AlertCircle } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { useSupport } from "@/context/SupportContext";
-import { generateTicketId } from "@/lib/mock-ai";
 import type { Ticket, TicketCategory, TicketPriority } from "@/types";
 
 const categories: TicketCategory[] = ["Network", "Account", "Software", "Email", "Hardware", "Other"];
@@ -20,7 +19,7 @@ const fieldClasses =
   "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-ink placeholder:text-ink-subtle transition-colors focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-100";
 
 export function NewTicketForm({ onCreated, onCancel }: { onCreated: (ticket: Ticket) => void; onCancel: () => void }) {
-  const { tickets, addTicket } = useSupport();
+  const { addTicket } = useSupport();
   const [subject, setSubject] = useState("");
   const [category, setCategory] = useState<TicketCategory>("Other");
   const [priority, setPriority] = useState<TicketPriority>("Medium");
@@ -28,7 +27,7 @@ export function NewTicketForm({ onCreated, onCancel }: { onCreated: (ticket: Tic
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!subject.trim() || !description.trim()) {
       setError("Please add a subject and describe the issue.");
@@ -36,20 +35,23 @@ export function NewTicketForm({ onCreated, onCancel }: { onCreated: (ticket: Tic
     }
     setError(null);
     setSubmitting(true);
-    // Simulated submission delay — nothing leaves the browser.
-    window.setTimeout(() => {
-      const ticket = addTicket({
-        // IDs are unique across ALL tickets, not just this employee's.
-        id: generateTicketId(tickets),
+    try {
+      // addTicket calls the backend (POST /tickets). The server generates the
+      // real id and sets status=Open, so we only send the employee-entered
+      // fields. We still pass status:"Open" to satisfy the TicketDraft type;
+      // the backend ignores/overrides it.
+      const ticket = await addTicket({
         subject: subject.trim(),
         category,
         priority,
-        status: "Open",
         description: description.trim(),
       });
-      setSubmitting(false);
       onCreated(ticket);
-    }, 600);
+    } catch {
+      setError("Could not create the ticket. Please check your connection and try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -137,7 +139,7 @@ export function NewTicketForm({ onCreated, onCancel }: { onCreated: (ticket: Tic
           {submitting ? (
             <>
               <Spinner label="Submitting ticket" className="[&_svg]:text-white" />
-              Submitting…
+              Submitting...
             </>
           ) : (
             "Submit ticket"

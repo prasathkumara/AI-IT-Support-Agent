@@ -1,4 +1,4 @@
-// Shared TypeScript types for the frontend prototype.
+﻿// Shared TypeScript types for the frontend prototype.
 //
 // Keeping every domain type in one file means the dashboard, the chatbot, the
 // mock data and the shared context all agree on the same shapes. If a field
@@ -18,7 +18,7 @@ export type TicketCategory =
 
 export interface Ticket {
   id: string;
-  /** Who raised the ticket — employees only ever see tickets with their own email. */
+  /** Who raised the ticket â€” employees only ever see tickets with their own email. */
   requesterName: string;
   requesterEmail: string;
   /** The IT admin working on the ticket. Unset until an admin assigns it. */
@@ -112,4 +112,8 @@ export type MockAIResponse =
   | { kind: "fallback"; message: string; suggestions: string[] };
 
 /** A ticket that has been drafted in the chat but not yet confirmed. */
-export type TicketDraft = Omit<Ticket, "createdAt" | "requesterName" | "requesterEmail">;
+export type TicketDraft = Omit<
+  Ticket,
+  "id" | "status" | "createdAt" | "requesterName" | "requesterEmail" | "assigneeName" | "assigneeEmail" | "resolvedAt"
+>;
+

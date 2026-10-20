@@ -19,6 +19,8 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") || "http://localhost:8000";
 
+import type { Ticket, TicketCategory, TicketPriority, TicketStatus } from "@/types";
+
 // --- Types that mirror the backend response shapes -------------------------
 // These match app/schemas/conversation.py on the backend. Keeping a local copy
 // means TypeScript can check our usage; it is not auto-generated, so if the
@@ -114,3 +116,107 @@ export function latestAssistantReply(conversation: ApiConversation): string {
   }
   return "";
 }
+
+
+// ===========================================================================
+// Tickets (employee slice) — mirrors backend app/api/routes/tickets.py
+// ===========================================================================
+//
+// The backend uses snake_case (requester_name); the frontend Ticket type uses
+// camelCase (requesterName). We translate at this boundary with
+// `apiTicketToTicket` so none of the existing UI components need to change.
+
+// Shape returned by the backend's TicketResponse (snake_case, as sent over JSON).
+export interface ApiTicket {
+  id: string;
+  requester_name: string;
+  requester_email: string;
+  subject: string;
+  category: TicketCategory;
+  priority: TicketPriority;
+  status: TicketStatus;
+  description: string;
+  assignee_name: string | null;
+  assignee_email: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+// What we send to create a ticket (matches TicketCreateRequest on the backend).
+export interface CreateTicketPayload {
+  requester_name: string;
+  requester_email: string;
+  subject: string;
+  description: string;
+  category: TicketCategory;
+  priority: TicketPriority;
+}
+
+/** Convert a backend ApiTicket (snake_case) into the frontend Ticket (camelCase). */
+export function apiTicketToTicket(t: ApiTicket): Ticket {
+  return {
+    id: t.id,
+    requesterName: t.requester_name,
+    requesterEmail: t.requester_email,
+    subject: t.subject,
+    category: t.category,
+    priority: t.priority,
+    status: t.status,
+    description: t.description,
+    assigneeName: t.assignee_name ?? undefined,
+    assigneeEmail: t.assignee_email ?? undefined,
+    resolvedAt: t.resolved_at ?? undefined,
+    createdAt: t.created_at,
+  };
+}
+
+// A small GET helper (the existing `request` above is POST-only).
+async function getJson<T>(path: string): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { method: "GET" });
+  } catch {
+    throw new ApiError("Could not reach the server. Is the backend running?");
+  }
+  if (!response.ok) {
+    let detail = `Request failed (HTTP ${response.status}).`;
+    try {
+      const data = await response.json();
+      if (data?.detail) detail = String(data.detail);
+    } catch {
+      // no JSON body; keep generic message
+    }
+    throw new ApiError(detail, response.status);
+  }
+  return (await response.json()) as T;
+}
+
+/**
+ * Create a ticket.
+ * Mirrors: POST /tickets  { requester_name, requester_email, subject, description, category, priority }
+ */
+export async function createTicket(payload: CreateTicketPayload): Promise<Ticket> {
+  const created = await request<ApiTicket>("/tickets", payload);
+  return apiTicketToTicket(created);
+}
+
+/**
+ * List one employee's tickets, newest first.
+ * Mirrors: GET /tickets?employee_id={email}
+ */
+export async function listEmployeeTickets(employeeEmail: string): Promise<Ticket[]> {
+  const tickets = await getJson<ApiTicket[]>(
+    `/tickets?employee_id=${encodeURIComponent(employeeEmail)}`,
+  );
+  return tickets.map(apiTicketToTicket);
+}
+
+/**
+ * Fetch one ticket by its friendly id (e.g. TICKET-1).
+ * Mirrors: GET /tickets/{id}
+ */
+export async function getTicket(ticketId: string): Promise<Ticket> {
+  const ticket = await getJson<ApiTicket>(`/tickets/${encodeURIComponent(ticketId)}`);
+  return apiTicketToTicket(ticket);
+}
+

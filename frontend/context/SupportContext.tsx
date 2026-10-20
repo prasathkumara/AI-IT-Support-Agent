@@ -1,19 +1,22 @@
-"use client";
+﻿"use client";
 
-// SupportContext — the single source of shared client state for the prototype.
+// SupportContext — the single source of shared client state for the app.
 //
 // New concept: React Context. Context lets any component read shared state
 // without passing props through every level. Here it holds the simulated
-// signed-in user, the ticket list and the activity feed, so a ticket
-// confirmed in the chatbot immediately shows up on the dashboard.
+// signed-in user, the ticket lists and the activity feed.
 //
-// Roles: an "employee" only sees their own tickets (`myTickets`) and is the
-// only one who creates tickets. An "admin" sees every ticket (`tickets`),
-// assigns it to any IT admin (Open → In Progress) and resolves it.
+// INTEGRATION STATUS (employee ticket slice):
+//   - EMPLOYEE tickets are now REAL: `myTickets` is loaded from the backend for
+//     the signed-in employee, and `addTicket` creates a ticket via the API.
+//   - ADMIN data is still MOCK: `tickets` (every ticket), `assignTicket`,
+//     `resolveTicket` and the `activity` feed stay on mock/localStorage until
+//     their backend endpoints exist. So a ticket an employee creates via the
+//     API will NOT appear in the admin views yet — that is expected for this
+//     slice and resolves once the admin endpoints are built.
 //
-// Everything is persisted to localStorage so a page refresh keeps you signed
-// in and keeps tickets created during the session. `hydrated` is false until
-// localStorage has been read, which lets pages avoid flashing the wrong UI.
+// Roles: an "employee" sees their own tickets (`myTickets`); an "admin" sees
+// every ticket (`tickets`) and manages them.
 import {
   createContext,
   useCallback,
@@ -25,11 +28,11 @@ import {
 } from "react";
 
 import { mockActivity, mockAdmins, mockEmployee, mockTickets } from "@/data/mock-tickets";
+import { ApiError, createTicket, listEmployeeTickets } from "@/lib/api";
 import { createId, nameFromEmail } from "@/lib/utils";
 import type { ActivityItem, Employee, Ticket, TicketDraft, UserRole } from "@/types";
 
-// The version prefix is bumped whenever the stored shapes change (v3: tickets
-// gained assignees), so data saved by an older build is ignored, not mis-read.
+// The version prefix is bumped whenever the stored shapes change.
 const STORAGE_KEYS = {
   session: "aits.v3.session",
   tickets: "aits.v3.tickets",
@@ -44,21 +47,23 @@ export function homePathFor(role: UserRole): string {
 interface SupportContextValue {
   hydrated: boolean;
   user: Employee | null;
-  /** Every ticket in the system — what the IT admin works from. */
+  /** Every ticket in the system — what the IT admin works from (still mock). */
   tickets: Ticket[];
-  /** Only the signed-in user's own tickets — what an employee sees. */
+  /** The signed-in employee's own tickets — loaded from the backend. */
   myTickets: Ticket[];
-  /** Activity relevant to the signed-in user. */
+  /** True while the employee's tickets are being fetched from the backend. */
+  myTicketsLoading: boolean;
+  /** Activity relevant to the signed-in user (still mock). */
   activity: ActivityItem[];
-  /** The IT admins a ticket can be assigned to. */
+  /** The IT admins a ticket can be assigned to (still mock). */
   admins: Employee[];
-  /** Signs in. IT admin emails get the admin portal; every other email is an employee. */
   login: (email: string) => Employee;
   logout: () => void;
-  addTicket: (draft: TicketDraft) => Ticket;
-  /** Admin only: give a ticket to an IT admin. An Open ticket moves to In Progress. */
+  /** Create a ticket via the backend. Async because it calls the API. */
+  addTicket: (draft: TicketDraft) => Promise<Ticket>;
+  /** Admin only (still mock): assign a ticket to an IT admin. */
   assignTicket: (id: string, adminEmail: string) => void;
-  /** Admin only: close a ticket. Unassigned tickets are assigned to the resolver. */
+  /** Admin only (still mock): close a ticket. */
   resolveTicket: (id: string) => void;
 }
 
@@ -78,31 +83,55 @@ function writeStorage(key: string, value: unknown): void {
     if (value === null) window.localStorage.removeItem(key);
     else window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // Storage can be unavailable (private mode, quota) — the app still works in memory.
+    // Storage can be unavailable (private mode, quota) — app still works in memory.
   }
 }
 
 export function SupportProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [user, setUser] = useState<Employee | null>(null);
+  // ADMIN tickets + activity stay on mock for now.
   const [tickets, setTickets] = useState<Ticket[]>(mockTickets);
   const [activity, setActivity] = useState<ActivityItem[]>(mockActivity);
+  // EMPLOYEE tickets come from the backend.
+  const [myTickets, setMyTickets] = useState<Ticket[]>([]);
+  const [myTicketsLoading, setMyTicketsLoading] = useState(false);
 
   // Load persisted state once, after the first client render.
   useEffect(() => {
     setUser(readStorage<Employee>(STORAGE_KEYS.session));
-    const storedTickets = readStorage<Ticket[]>(STORAGE_KEYS.tickets);
-    if (storedTickets) setTickets(storedTickets);
     const storedActivity = readStorage<ActivityItem[]>(STORAGE_KEYS.activity);
     if (storedActivity) setActivity(storedActivity);
     setHydrated(true);
   }, []);
 
+  // Whenever we have a signed-in employee, (re)load THEIR tickets from the API.
+  // Admins don't use myTickets, so we only fetch for employees.
+  useEffect(() => {
+    if (!user || user.role !== "employee") {
+      setMyTickets([]);
+      return;
+    }
+    let cancelled = false;
+    setMyTicketsLoading(true);
+    listEmployeeTickets(user.email)
+      .then((list) => {
+        if (!cancelled) setMyTickets(list);
+      })
+      .catch(() => {
+        // On failure (backend down), fall back to an empty list rather than crash.
+        if (!cancelled) setMyTickets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setMyTicketsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   const login = useCallback((email: string): Employee => {
     const trimmed = email.trim().toLowerCase();
-    // The role is decided by the email, never chosen at sign-in: only members of
-    // the IT team (mockAdmins) get the admin portal. Any other email signs in as
-    // an employee; the demo employee keeps their profile, others get a derived name.
     const account: Employee =
       mockAdmins.find((a) => a.email === trimmed) ??
       (trimmed === mockEmployee.email ? mockEmployee : { ...mockEmployee, email: trimmed, name: nameFromEmail(trimmed) });
@@ -124,33 +153,35 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Create a ticket on the backend, then add the REAL returned ticket (with its
+  // server-generated id like TICKET-1) to the employee's list.
   const addTicket = useCallback(
-    (draft: TicketDraft): Ticket => {
+    async (draft: TicketDraft): Promise<Ticket> => {
       const requester = user ?? mockEmployee;
-      const ticket: Ticket = {
-        ...draft,
-        requesterName: requester.name,
-        requesterEmail: requester.email,
-        createdAt: new Date().toISOString(),
-      };
-      setTickets((prev) => {
-        const next = [ticket, ...prev];
-        writeStorage(STORAGE_KEYS.tickets, next);
-        return next;
+      const created = await createTicket({
+        requester_name: requester.name,
+        requester_email: requester.email,
+        subject: draft.subject,
+        description: draft.description,
+        category: draft.category,
+        priority: draft.priority,
       });
+      // Prepend so the newest ticket shows first, matching the list order.
+      setMyTickets((prev) => [created, ...prev]);
       pushActivity({
         id: createId("act"),
         kind: "ticket-created",
-        recipientEmail: ticket.requesterEmail,
-        title: `${ticket.id} created`,
-        description: `"${ticket.subject}" was sent to the IT team.`,
-        createdAt: ticket.createdAt,
+        recipientEmail: created.requesterEmail,
+        title: `${created.id} created`,
+        description: `"${created.subject}" was sent to the IT team.`,
+        createdAt: created.createdAt,
       });
-      return ticket;
+      return created;
     },
     [user, pushActivity],
   );
 
+  // --- ADMIN actions below are UNCHANGED (still mock) ----------------------
   const patchTicket = useCallback((id: string, patch: Partial<Ticket>) => {
     setTickets((prev) => {
       const next = prev.map((t) => (t.id === id ? { ...t, ...patch } : t));
@@ -199,11 +230,6 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     [tickets, user, patchTicket, pushActivity],
   );
 
-  const myTickets = useMemo(
-    () => (user ? tickets.filter((t) => t.requesterEmail === user.email) : []),
-    [tickets, user],
-  );
-
   const visibleActivity = useMemo(
     () => activity.filter((item) => !item.recipientEmail || item.recipientEmail === user?.email),
     [activity, user],
@@ -215,6 +241,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
       user,
       tickets,
       myTickets,
+      myTicketsLoading,
       activity: visibleActivity,
       admins: mockAdmins,
       login,
@@ -223,7 +250,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
       assignTicket,
       resolveTicket,
     }),
-    [hydrated, user, tickets, myTickets, visibleActivity, login, logout, addTicket, assignTicket, resolveTicket],
+    [hydrated, user, tickets, myTickets, myTicketsLoading, visibleActivity, login, logout, addTicket, assignTicket, resolveTicket],
   );
 
   return <SupportContext.Provider value={value}>{children}</SupportContext.Provider>;

@@ -148,22 +148,33 @@ export function useSupportChat() {
     if (!draft || isCreatingTicket) return;
     const id = turnId.current;
     setIsCreatingTicket(true);
-    // Simulated submission delay — ticket creation is still frontend-only.
-    window.setTimeout(() => {
-      if (id !== turnId.current) return;
-      const ticket = addTicket(draft);
-      setIsCreatingTicket(false);
-      setDraft(null);
-      setPhase("idle");
-      activeIssue.current = null;
-      append({
-        role: "assistant",
-        tone: "success",
-        content: `Your ticket ${ticket.id} has been created with status "Open". The IT team will follow up soon — you can track it from your dashboard.`,
-        link: { href: "/dashboard", label: "View on dashboard" },
-        offerNewChat: true,
-      });
-    }, 900);
+    // addTicket now calls the backend (POST /tickets). It is async, so we run
+    // it in an IIFE and await the real created ticket (with its server id).
+    (async () => {
+      try {
+        const ticket = await addTicket(draft);
+        if (id !== turnId.current) return;
+        activeIssue.current = null;
+        setDraft(null);
+        setPhase("idle");
+        append({
+          role: "assistant",
+          tone: "success",
+          content: `Your ticket ${ticket.id} has been created with status "Open". The IT team will follow up soon - you can track it from your dashboard.`,
+          link: { href: "/dashboard", label: "View on dashboard" },
+          offerNewChat: true,
+        });
+      } catch {
+        if (id !== turnId.current) return;
+        append({
+          role: "assistant",
+          content:
+            "Sorry, I couldn't create the ticket just now. Please check your connection and try again.",
+        });
+      } finally {
+        setIsCreatingTicket(false);
+      }
+    })();
   }, [addTicket, append, draft, isCreatingTicket]);
 
   const cancelTicket = useCallback(() => {

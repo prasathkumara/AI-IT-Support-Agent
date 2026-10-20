@@ -33,14 +33,12 @@ export function CreateTicketConfirmation({ draft, onConfirm, onCancel, submittin
       </div>
 
       <dl className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-ink-subtle">Ticket ID</dt>
-          <dd className="mt-0.5 font-semibold text-brand-700">{draft.id}</dd>
-        </div>
-        <div>
+        <div className="sm:col-span-2">
           <dt className="text-xs font-medium uppercase tracking-wide text-ink-subtle">Status</dt>
           <dd className="mt-1">
-            <StatusBadge status={draft.status} />
+            {/* A draft has no id yet; the backend assigns one (e.g. TICKET-1) on confirm.
+                New tickets are always created with status "Open". */}
+            <StatusBadge status="Open" />
           </dd>
         </div>
         <div className="sm:col-span-2">
