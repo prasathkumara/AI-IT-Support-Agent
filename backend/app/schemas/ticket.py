@@ -56,3 +56,27 @@ class TicketResponse(BaseModel):
     assignee_email: str | None = None
     resolved_at: datetime | None = None
     created_at: datetime
+
+
+class TicketAssignRequest(BaseModel):
+    """What an admin sends to assign a ticket to an IT staff member.
+
+    The backend trusts these values (there is no backend admin model yet — that
+    comes with the auth phase). The frontend fills them from its known admin
+    list. Both are required and non-empty.
+    """
+
+    assignee_name: str = Field(..., min_length=1, description="Name of the IT admin to assign.")
+    assignee_email: str = Field(..., min_length=1, description="Email of the IT admin to assign.")
+
+
+class TicketResolveRequest(BaseModel):
+    """Optional details about who resolved a ticket.
+
+    If the ticket is unassigned, the service credits this resolver as the
+    assignee. Both fields are optional — resolving without a resolver still
+    works (the ticket just keeps whatever assignee it already had).
+    """
+
+    resolver_name: str | None = None
+    resolver_email: str | None = None

@@ -105,3 +105,35 @@ def list_by_employee(requester_email: str, limit: int = 100) -> list[Ticket]:
     )
     return [_document_to_model(doc) for doc in cursor]
 
+
+def list_all(limit: int = 500) -> list[Ticket]:
+    """Return EVERY ticket, newest first, capped by `limit` (admin view)."""
+    cursor = _collection().find().sort("created_at", -1).limit(limit)
+    return [_document_to_model(doc) for doc in cursor]
+
+
+def update(ticket_id: str, patch: dict[str, Any]) -> Ticket | None:
+    """Apply a partial update to a ticket and return the updated version.
+
+    `patch` is a dict of field->value to set (e.g. {"status": "In Progress",
+    "assignee_email": "..."}). We use find_one_and_update with
+    return_document=AFTER so MongoDB hands back the document AS IT LOOKS after
+    the update, in a single round-trip — the same pattern as the conversation
+    repository's add_message.
+
+    Returns None if no ticket has that friendly id.
+    """
+    from pymongo import ReturnDocument
+
+    if not patch:
+        # Nothing to change — just return the current ticket (or None).
+        return get_by_id(ticket_id)
+
+    updated = _collection().find_one_and_update(
+        {"ticket_id": ticket_id},
+        {"$set": patch},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated is None:
+        return None
+    return _document_to_model(updated)
