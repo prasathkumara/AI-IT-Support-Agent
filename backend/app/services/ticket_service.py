@@ -113,3 +113,34 @@ def resolve_ticket(
         patch["assignee_email"] = resolver_email
 
     return ticket_repository.update(ticket_id, patch)
+
+
+def set_status(ticket_id: str, new_status: TicketStatus) -> Ticket | None:
+    """Set a ticket to ANY status (free transitions - admin dropdown).
+
+    Rules kept minimal (per the agreed design - no enforced transition order):
+      - Moving INTO Resolved or Closed stamps `resolved_at` (if not already set),
+        so we record WHEN it was completed.
+      - Moving BACK to Open or In Progress clears `resolved_at` (the ticket is
+        active again, so a stale "resolved on" date would be misleading).
+
+    Returns the updated ticket, or None if the id doesn't exist.
+    """
+    from datetime import datetime, timezone
+
+    ticket = ticket_repository.get_by_id(ticket_id)
+    if ticket is None:
+        return None
+
+    patch: dict = {"status": new_status.value}
+
+    if new_status in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
+        # Stamp completion time if we don't already have one.
+        if ticket.resolved_at is None:
+            patch["resolved_at"] = datetime.now(timezone.utc)
+    else:
+        # Back to an active state - drop any old completion timestamp.
+        if ticket.resolved_at is not None:
+            patch["resolved_at"] = None
+
+    return ticket_repository.update(ticket_id, patch)

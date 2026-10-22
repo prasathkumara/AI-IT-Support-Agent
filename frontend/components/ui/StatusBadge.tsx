@@ -7,12 +7,14 @@ const statusClasses: Record<TicketStatus, string> = {
   Open: "bg-amber-50 text-amber-800 ring-amber-200",
   "In Progress": "bg-brand-50 text-brand-700 ring-brand-200",
   Resolved: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  Closed: "bg-slate-100 text-slate-600 ring-slate-300",
 };
 
 const statusDot: Record<TicketStatus, string> = {
   Open: "bg-amber-500",
   "In Progress": "bg-brand-500",
   Resolved: "bg-emerald-500",
+  Closed: "bg-slate-400",
 };
 
 export function StatusBadge({ status }: { status: TicketStatus }) {

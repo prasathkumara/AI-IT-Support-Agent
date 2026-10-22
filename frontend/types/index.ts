@@ -4,7 +4,7 @@
 // mock data and the shared context all agree on the same shapes. If a field
 // changes here, the compiler points at every place that needs updating.
 
-export type TicketStatus = "Open" | "In Progress" | "Resolved";
+export type TicketStatus = "Open" | "In Progress" | "Resolved" | "Closed";
 
 export type TicketPriority = "Low" | "Medium" | "High";
 

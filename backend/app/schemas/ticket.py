@@ -80,3 +80,13 @@ class TicketResolveRequest(BaseModel):
 
     resolver_name: str | None = None
     resolver_email: str | None = None
+
+
+class TicketStatusRequest(BaseModel):
+    """What an admin sends to change a ticket's status (free transitions).
+
+    `status` must be one of the TicketStatus values (Open / In Progress /
+    Resolved / Closed); FastAPI rejects anything else with a 422.
+    """
+
+    status: TicketStatus

@@ -29,6 +29,7 @@ class TicketStatus(str, Enum):
     OPEN = "Open"
     IN_PROGRESS = "In Progress"
     RESOLVED = "Resolved"
+    CLOSED = "Closed"
 
 
 class TicketCategory(str, Enum):

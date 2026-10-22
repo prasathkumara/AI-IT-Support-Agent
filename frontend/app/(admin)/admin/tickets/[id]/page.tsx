@@ -1,8 +1,8 @@
 "use client";
 
-// /admin/tickets/[id] — one ticket in full. The admin reads the employee's
-// description, assigns the ticket to any IT admin and resolves it. Tickets are
-// created only by employees, so nothing else here is editable.
+// /admin/tickets/[id] - one ticket in full. The admin reads the employee's
+// description, assigns the ticket, and changes its STATUS via a dropdown
+// (Open / In Progress / Resolved / Closed - free transitions).
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -10,11 +10,14 @@ import type { ReactNode } from "react";
 
 import { AssignSelect } from "@/components/tickets/TicketList";
 import { Avatar } from "@/components/ui/Avatar";
-import { Button, buttonClasses } from "@/components/ui/Button";
+import { buttonClasses } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PriorityBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { useSupport } from "@/context/SupportContext";
 import { formatDate, formatTime } from "@/lib/utils";
+import type { TicketStatus } from "@/types";
+
+const STATUSES: TicketStatus[] = ["Open", "In Progress", "Resolved", "Closed"];
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -34,7 +37,7 @@ const backLink = (
 
 export default function AdminTicketDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user, tickets, admins, assignTicket, resolveTicket } = useSupport();
+  const { user, tickets, admins, assignTicket, resolveTicket, setTicketStatus } = useSupport();
   const ticket = tickets.find((t) => t.id === id);
 
   if (!ticket) {
@@ -57,7 +60,7 @@ export default function AdminTicketDetailPage() {
     );
   }
 
-  const resolved = ticket.status === "Resolved";
+  const done = ticket.status === "Resolved" || ticket.status === "Closed";
   const actions = { admins, onAssign: assignTicket, onResolve: resolveTicket };
 
   return (
@@ -73,18 +76,31 @@ export default function AdminTicketDetailPage() {
             <PriorityBadge priority={ticket.priority} />
           </div>
         </div>
-        {!resolved && (
-          <Button onClick={() => resolveTicket(ticket.id)}>
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            Mark as resolved
-          </Button>
-        )}
+
+        {/* Status dropdown - admin can move the ticket to ANY status. */}
+        <div className="shrink-0">
+          <label htmlFor="ticket-status" className="mb-1 block text-xs font-medium text-ink-muted">
+            Change status
+          </label>
+          <select
+            id="ticket-status"
+            value={ticket.status}
+            onChange={(e) => setTicketStatus(ticket.id, e.target.value as TicketStatus)}
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-8 text-sm font-medium text-ink focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-100 sm:w-48"
+          >
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {resolved && (
+      {done && (
         <p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
           <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-          Resolved by {ticket.assigneeName ?? "IT Support"}
+          {ticket.status} by {ticket.assigneeName ?? "IT Support"}
           {ticket.resolvedAt && ` on ${formatDate(ticket.resolvedAt)}`}.
         </p>
       )}
@@ -114,17 +130,13 @@ export default function AdminTicketDetailPage() {
           <div className="mt-4">
             <p className="text-sm font-medium text-ink">Assigned to</p>
             <div className="mt-1.5">
-              {resolved ? (
-                <p className="text-sm text-ink">{ticket.assigneeName ?? "Unassigned"}</p>
-              ) : (
-                <AssignSelect
-                  ticket={ticket}
-                  actions={actions}
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-ink focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-100"
-                />
-              )}
+              <AssignSelect
+                ticket={ticket}
+                actions={actions}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-ink focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-100"
+              />
             </div>
-            {!resolved && user && ticket.assigneeEmail !== user.email && (
+            {user && ticket.assigneeEmail !== user.email && (
               <button
                 type="button"
                 onClick={() => assignTicket(ticket.id, user.email)}
@@ -140,7 +152,7 @@ export default function AdminTicketDetailPage() {
             <Detail label="Created">
               {formatDate(ticket.createdAt)}, {formatTime(ticket.createdAt)}
             </Detail>
-            {ticket.resolvedAt && <Detail label="Resolved">{formatDate(ticket.resolvedAt)}</Detail>}
+            {ticket.resolvedAt && <Detail label="Completed">{formatDate(ticket.resolvedAt)}</Detail>}
           </dl>
         </aside>
       </div>

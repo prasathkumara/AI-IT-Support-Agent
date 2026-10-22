@@ -26,6 +26,7 @@ from app.schemas.ticket import (
     TicketCreateRequest,
     TicketResolveRequest,
     TicketResponse,
+    TicketStatusRequest,
 )
 from app.services import ticket_service
 
@@ -109,6 +110,24 @@ def resolve_ticket(ticket_id: str, payload: TicketResolveRequest) -> TicketRespo
     ticket = ticket_service.resolve_ticket(
         ticket_id, payload.resolver_name, payload.resolver_email
     )
+    if ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ticket not found",
+        )
+    return TicketResponse(**ticket.model_dump())
+
+
+
+@router.patch("/{ticket_id}/status", response_model=TicketResponse)
+def set_ticket_status(ticket_id: str, payload: TicketStatusRequest) -> TicketResponse:
+    """Set a ticket to any status (Open / In Progress / Resolved / Closed).
+
+    Free transitions - the admin dropdown can move a ticket to any status. The
+    service stamps resolved_at when moving into Resolved/Closed and clears it
+    when moving back to an active state. Returns the updated ticket, or 404.
+    """
+    ticket = ticket_service.set_status(ticket_id, payload.status)
     if ticket is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
