@@ -132,9 +132,72 @@ If a change would introduce something from a later phase (AI logic, RAG, databas
 UI, etc.) while an earlier phase is active, we defer it. This is intentional: it keeps each phase
 focused and easy to understand, which matters a lot on a first AI project.
 
-## Getting started (Phase 1)
+## Getting started
 
-> **Setup instructions are coming soon.** The detailed steps for installing dependencies and
-> running the frontend and backend will be filled in here as the bootstrap files are added in
-> the next tasks (the Next.js home page and the FastAPI `/health` endpoint). Once those exist,
-> this section will show you exactly how to start each part and confirm it's working.
+This section shows how to run the **backend** (FastAPI) and the **frontend** (Next.js) locally. Run them in **two separate terminals** - each is a long-running server you keep open while developing.
+
+> Commands are written for **Windows PowerShell** (the project default shell). On macOS/Linux use forward-slash paths, `source .venv/bin/activate`, and `cp` instead of `copy`.
+
+### Prerequisites
+
+- **Python 3.11+** (backend)
+- **Node.js 18+** and **npm** (frontend)
+- A **MongoDB Atlas** connection string and a **Claude API key**
+
+### 1. Backend (FastAPI) - http://localhost:8000
+
+From the repository root:
+
+```powershell
+cd backend
+
+# Create and activate a virtual environment (first time only)
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# Install the backend and its dependencies
+pip install -e .
+
+# Create your local .env from the template, then fill in real values
+copy .env.example .env
+#   -> set MONGODB_URI and CLAUDE_API_KEY at minimum
+
+# Start the API server (auto-reloads on code changes)
+uvicorn app.main:app --reload
+```
+
+Confirm it is working:
+
+- http://localhost:8000/health -> `{"status": "ok"}`
+- http://localhost:8000/health/db -> confirms MongoDB is reachable
+- http://localhost:8000/docs -> interactive API docs
+
+> **Tip:** the first chat/RAG request downloads the local embedding model (~90 MB) once, so it may pause briefly the first time.
+
+### 2. Frontend (Next.js) - http://localhost:3000
+
+In a **second** terminal, from the repository root:
+
+```powershell
+cd frontend
+
+# Install dependencies (first time only)
+npm install
+
+# Create your local .env from the template
+copy .env.example .env
+
+# Start the dev server (hot-reloads on code changes)
+npm run dev
+```
+
+Open **http://localhost:3000**. Sign-in is simulated - use a demo account from the login screen:
+
+- **Employee:** `alex.morgan@contoso.com`
+- **IT Admin:** `it.admin@contoso.com`
+
+> **Note:** the frontend calls the backend at `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`). If Next.js starts on a different port (e.g. 3001), make sure that port is in the backend `CORS_ALLOW_ORIGINS` so the browser is not blocked by CORS.
+
+### Running both together
+
+The app works fully only when **both** servers run at once: the frontend (3000) serves the UI and calls the backend (8000) for AI chat, knowledge, and tickets. Start the backend first, then the frontend.
