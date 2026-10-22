@@ -16,10 +16,10 @@
 //   a secret). We fall back to localhost:8000 so the app still works if .env is
 //   missing during development.
 
+import type { Ticket, TicketCategory, TicketPriority, TicketStatus } from "@/types";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") || "http://localhost:8000";
-
-import type { Ticket, TicketCategory, TicketPriority, TicketStatus } from "@/types";
 
 // --- Types that mirror the backend response shapes -------------------------
 // These match app/schemas/conversation.py on the backend. Keeping a local copy
@@ -284,6 +284,106 @@ export async function resolveTicketApi(
   const updated = await patchJson<ApiTicket>(
     `/tickets/${encodeURIComponent(ticketId)}/resolve`,
     { resolver_name: resolverName ?? null, resolver_email: resolverEmail ?? null },
+  );
+  return apiTicketToTicket(updated);
+}
+
+// ===========================================================================
+// Knowledge base (admin) — mirrors backend app/api/routes/knowledge.py
+// ===========================================================================
+
+// A knowledge document as returned by GET /knowledge (no chunks/embeddings).
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  source: string;
+  status: "pending" | "completed" | "failed";
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// The result of ingesting a document (shared by text + file upload).
+export interface IngestionResult {
+  document_id: string;
+  title: string;
+  status: "pending" | "completed" | "failed";
+  chunk_count: number;
+  error: string | null;
+}
+
+/**
+ * Upload a .docx file to the knowledge base (admin).
+ * Mirrors: POST /knowledge/upload  (multipart: file[, title])
+ *
+ * Uses FormData (multipart/form-data) because we're sending a FILE, not JSON.
+ * We do NOT set Content-Type ourselves — the browser sets it (with the correct
+ * multipart boundary) automatically when the body is FormData.
+ */
+export async function uploadKnowledgeDocx(file: File, title?: string): Promise<IngestionResult> {
+  const form = new FormData();
+  form.append("file", file);
+  if (title && title.trim()) form.append("title", title.trim());
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/knowledge/upload`, {
+      method: "POST",
+      body: form,
+    });
+  } catch {
+    throw new ApiError("Could not reach the server. Is the backend running?");
+  }
+  if (!response.ok) {
+    let detail = `Upload failed (HTTP ${response.status}).`;
+    try {
+      const data = await response.json();
+      if (data?.detail) detail = String(data.detail);
+    } catch {
+      // no JSON body
+    }
+    throw new ApiError(detail, response.status);
+  }
+  return (await response.json()) as IngestionResult;
+}
+
+/**
+ * List all knowledge documents, newest first (admin).
+ * Mirrors: GET /knowledge
+ */
+export async function listKnowledgeDocuments(): Promise<KnowledgeDocument[]> {
+  return getJson<KnowledgeDocument[]>("/knowledge");
+}
+
+/**
+ * Delete a knowledge document and its chunks (admin).
+ * Mirrors: DELETE /knowledge/{id}  (204 No Content on success)
+ */
+export async function deleteKnowledgeDocument(documentId: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/knowledge/${encodeURIComponent(documentId)}`, {
+      method: "DELETE",
+    });
+  } catch {
+    throw new ApiError("Could not reach the server. Is the backend running?");
+  }
+  if (!response.ok) {
+    throw new ApiError(`Delete failed (HTTP ${response.status}).`, response.status);
+  }
+}
+
+/**
+ * Set a ticket to any status (Open / In Progress / Resolved / Closed).
+ * Mirrors: PATCH /tickets/{id}/status  { status }
+ */
+export async function setTicketStatusApi(
+  ticketId: string,
+  status: TicketStatus,
+): Promise<Ticket> {
+  const updated = await patchJson<ApiTicket>(
+    `/tickets/${encodeURIComponent(ticketId)}/status`,
+    { status },
   );
   return apiTicketToTicket(updated);
 }

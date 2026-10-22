@@ -34,9 +34,10 @@ import {
   listAllTickets,
   listEmployeeTickets,
   resolveTicketApi,
+  setTicketStatusApi,
 } from "@/lib/api";
 import { createId, nameFromEmail } from "@/lib/utils";
-import type { ActivityItem, Employee, Ticket, TicketDraft, UserRole } from "@/types";
+import type { ActivityItem, Employee, Ticket, TicketDraft, TicketStatus, UserRole } from "@/types";
 
 const STORAGE_KEYS = {
   session: "aits.v3.session",
@@ -71,6 +72,8 @@ interface SupportContextValue {
   assignTicket: (id: string, adminEmail: string) => void;
   /** Admin: resolve a ticket. Calls the backend. */
   resolveTicket: (id: string) => void;
+  /** Admin: set a ticket to any status (Open/In Progress/Resolved/Closed). */
+  setTicketStatus: (id: string, status: TicketStatus) => void;
 }
 
 const SupportContext = createContext<SupportContextValue | null>(null);
@@ -269,6 +272,32 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     [tickets, user, applyTicketUpdate, pushActivity],
   );
 
+  // ADMIN: set a ticket to any status via the dropdown. Fire-and-forget like
+  // the others; updates state with the server response.
+  const setTicketStatus = useCallback(
+    (id: string, status: TicketStatus) => {
+      const ticket = tickets.find((t) => t.id === id) ?? myTickets.find((t) => t.id === id);
+      if (!ticket || ticket.status === status) return;
+      (async () => {
+        try {
+          const updated = await setTicketStatusApi(id, status);
+          applyTicketUpdate(updated);
+          pushActivity({
+            id: createId("act"),
+            kind: "ticket-update",
+            recipientEmail: ticket.requesterEmail,
+            title: `${id} status changed to ${status}`,
+            description: `"${ticket.subject}" is now ${status}.`,
+            createdAt: new Date().toISOString(),
+          });
+        } catch {
+          // On failure, leave state unchanged.
+        }
+      })();
+    },
+    [tickets, myTickets, applyTicketUpdate, pushActivity],
+  );
+
   const visibleActivity = useMemo(
     () => activity.filter((item) => !item.recipientEmail || item.recipientEmail === user?.email),
     [activity, user],
@@ -289,8 +318,9 @@ export function SupportProvider({ children }: { children: ReactNode }) {
       addTicket,
       assignTicket,
       resolveTicket,
+      setTicketStatus,
     }),
-    [hydrated, user, tickets, ticketsLoading, myTickets, myTicketsLoading, visibleActivity, login, logout, addTicket, assignTicket, resolveTicket],
+    [hydrated, user, tickets, ticketsLoading, myTickets, myTicketsLoading, visibleActivity, login, logout, addTicket, assignTicket, resolveTicket, setTicketStatus],
   );
 
   return <SupportContext.Provider value={value}>{children}</SupportContext.Provider>;
