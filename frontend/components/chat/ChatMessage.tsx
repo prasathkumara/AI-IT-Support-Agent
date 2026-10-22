@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 
 import { BotAvatar } from "@/components/illustrations/BotAvatar";
 import { Avatar } from "@/components/ui/Avatar";
+import { MarkdownContent } from "./MarkdownContent";
 import { cn, formatTime } from "@/lib/utils";
 import type { ChatMessage as ChatMessageType } from "@/types";
 
@@ -39,12 +40,21 @@ export function ChatMessage({ message, userName, onSuggestionClick, onNewChat, d
                 : "rounded-tl-md border border-slate-200/80 bg-white text-ink shadow-sm",
           )}
         >
-          <p className="flex items-start gap-2 whitespace-pre-line break-words">
+          <div className="flex items-start gap-2 break-words">
             {message.tone === "success" && (
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
             )}
-            <span>{message.content}</span>
-          </p>
+            {/* User text is shown as-is (plain). Assistant text is Markdown
+                from the AI, so we render it with MarkdownContent for proper
+                headings, bold, lists, and links. */}
+            {isUser ? (
+              <span className="whitespace-pre-line">{message.content}</span>
+            ) : (
+              <div className="min-w-0 flex-1">
+                <MarkdownContent content={message.content} />
+              </div>
+            )}
+          </div>
 
           {message.steps && message.steps.length > 0 && (
             <ol className="mt-3 space-y-2.5">
