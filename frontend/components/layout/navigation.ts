@@ -1,4 +1,4 @@
-// Sidebar navigation entries, one list per role. Knowledge Base, Notifications
+﻿// Sidebar navigation entries, one list per role. Knowledge Base, Notifications
 // and Profile still route to placeholder pages in this phase.
 import { Bell, BookOpen, Bot, Home, LayoutDashboard, Ticket, UserRound, type LucideIcon } from "lucide-react";
 
@@ -22,6 +22,7 @@ const employeeNavItems: NavItem[] = [
 const adminNavItems: NavItem[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "All Tickets", href: "/admin/tickets", icon: Ticket },
+  { label: "Knowledge Base", href: "/admin/knowledge", icon: BookOpen },
 ];
 
 export function navItemsFor(role: UserRole): NavItem[] {
@@ -33,3 +34,4 @@ export function isActivePath(pathname: string, href: string): boolean {
   if (href === "/admin") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
+

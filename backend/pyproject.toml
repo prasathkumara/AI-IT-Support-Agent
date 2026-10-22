@@ -1,4 +1,4 @@
-# pyproject.toml — the Python project manifest for the backend.
+﻿# pyproject.toml â€” the Python project manifest for the backend.
 #
 # Think of this file as the Python equivalent of package.json in the Node/Next.js
 # world: it declares the project's name, version, the Python version it needs, and
@@ -21,12 +21,12 @@ description = "FastAPI backend (modular monolith) for the AI IT Support Platform
 # (e.g. dict[str, str]) used by the /health route.
 requires-python = ">=3.11"
 
-# Runtime dependencies — the libraries the app needs to actually run.
+# Runtime dependencies â€” the libraries the app needs to actually run.
 # Kept MINIMAL on purpose: only what Phase 1 needs to serve GET /health
-# (Requirement 20.7 — exclude dependencies not required by an implemented phase).
-# Later phases add LangGraph, Claude, MongoDB, storage, etc. — NOT here yet.
+# (Requirement 20.7 â€” exclude dependencies not required by an implemented phase).
+# Later phases add LangGraph, Claude, MongoDB, storage, etc. â€” NOT here yet.
 dependencies = [
-    "fastapi",            # the web framework — defines routes like GET /health
+    "fastapi",            # the web framework â€” defines routes like GET /health
     "uvicorn[standard]",  # the ASGI server that actually runs the FastAPI app
     "pydantic",           # data validation FastAPI relies on
     "pydantic-settings",  # loads config from environment variables (.env)
@@ -43,7 +43,7 @@ dependencies = [
     "sentence-transformers",
 ]
 
-# Optional dependencies — installed only when explicitly requested (e.g. for tests).
+# Optional dependencies â€” installed only when explicitly requested (e.g. for tests).
 # These are NOT needed to run the app, so they live here instead of in `dependencies`.
 [project.optional-dependencies]
 dev = [
@@ -60,3 +60,4 @@ include = ["app*"]
 # Points pytest at the tests/ folder so it knows where to look for tests.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+

@@ -272,3 +272,38 @@ def vector_search(query_embedding: list[float], limit: int) -> list[KnowledgeChu
 
     cursor = _chunks().aggregate(pipeline)
     return [_chunk_to_model(doc) for doc in cursor]
+
+
+def list_documents(limit: int = 200) -> list[KnowledgeDocument]:
+    """Return all knowledge documents, newest first (for the admin KB page)."""
+    cursor = _documents().find().sort("created_at", -1).limit(limit)
+    return [_document_to_model(doc) for doc in cursor]
+
+
+def get_document_by_title(title: str) -> KnowledgeDocument | None:
+    """Find a document by its exact title, or None.
+
+    Used for the REPLACE-BY-TITLE behaviour: before ingesting, we check whether
+    a document with the same title already exists so we can replace it.
+    """
+    document = _documents().find_one({"title": title})
+    if document is None:
+        return None
+    return _document_to_model(document)
+
+
+def delete_document(document_id: str) -> int:
+    """Delete a document AND all of its chunks. Returns chunks removed count.
+
+    We delete the chunks first (they reference the document via `document_id`),
+    then the parent document. `document_id` is the stringified `_id`.
+    """
+    # Remove every chunk that belongs to this document.
+    chunk_result = _chunks().delete_many({"document_id": document_id})
+    # Remove the parent document itself.
+    try:
+        object_id = ObjectId(document_id)
+    except (InvalidId, TypeError):
+        return chunk_result.deleted_count
+    _documents().delete_one({"_id": object_id})
+    return chunk_result.deleted_count

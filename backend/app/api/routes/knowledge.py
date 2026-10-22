@@ -1,60 +1,108 @@
-"""Knowledge API routes (Phase 2 — RAG, Requirements 9.1, 9.2).
+﻿"""Knowledge API routes (Phase 2 - RAG + admin knowledge-base management).
 
-NEW CONCEPT: the route layer (the "waiter"), again
-    Just like conversations.py, this file's ONLY job is HTTP: read the incoming
-    request, call a SERVICE to do the real work, and return a response. There is
-    no business logic and no database code here. Notice we import the ingestion
-    SERVICE (app.services.knowledge_service), never the repository or MongoDB
-    directly — that's the layering again: route -> service -> repository.
+Same route-layer pattern as conversations.py: HTTP only - read the request,
+call the SERVICE, return a response. No business logic, no DB code here.
 
-NEW CONCEPT: model vs schema (where each one belongs)
-    - A *model* (app/models/knowledge.py) is how data looks INSIDE the app and
-      the database (internal id, status, timestamps, raw embedding vectors).
-    - A *schema* (app/schemas/knowledge.py) is what crosses the API BOUNDARY:
-      exactly what a client may SEND and exactly what we promise to SEND BACK.
-    This route only ever touches SCHEMAS. It accepts a KnowledgeUploadRequest
-    and returns an IngestionResultResponse, so internals never leak over HTTP.
+Endpoints:
+  POST   /knowledge          -> ingest a plain-TEXT document (title + text JSON)
+  POST   /knowledge/upload   -> ingest an uploaded .docx FILE (admin KB page)
+  GET    /knowledge          -> list all knowledge documents (admin KB page)
+  DELETE /knowledge/{id}     -> delete a document and its chunks (admin KB page)
 
-This endpoint:
-  POST /knowledge   -> ingest a plain-text document into the knowledge base
+The upload endpoint extracts text from the .docx server-side (the browser can't
+run python-docx), then hands the text to the same ingestion pipeline used by
+POST /knowledge. Ingestion is REPLACE-BY-TITLE: re-uploading a file with the
+same title updates that document instead of creating a duplicate.
 """
 
-from fastapi import APIRouter, status
+import io
 
-from app.schemas.knowledge import IngestionResultResponse, KnowledgeUploadRequest
+import docx
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+
+from app.schemas.knowledge import (
+    IngestionResultResponse,
+    KnowledgeDocumentResponse,
+    KnowledgeUploadRequest,
+)
 from app.services import knowledge_service
 
-# prefix="/knowledge" means every route below starts with /knowledge, so the
-# route decorator can use "" to mean the full path /knowledge. tags groups this
-# endpoint on the /docs page. Same pattern as conversations.py.
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 
 @router.post("", response_model=IngestionResultResponse, status_code=status.HTTP_201_CREATED)
-def upload_knowledge(payload: KnowledgeUploadRequest) -> IngestionResultResponse:
-    """Ingest a plain-text document into the knowledge base.
+def upload_knowledge_text(payload: KnowledgeUploadRequest) -> IngestionResultResponse:
+    """Ingest a plain-TEXT document (title + text as JSON).
 
-    FastAPI parses the JSON body into `payload` and validates it against
-    KnowledgeUploadRequest first (missing/empty title or text -> a clean 422
-    before our code even runs). `status_code=201` means "Created".
-
-    We hand the title + text straight to the ingestion service, which runs the
-    whole pipeline (clean -> chunk -> embed -> store -> mark status) and returns
-    an IngestionResultResponse summarising the outcome.
-
-    NEW CONCEPT: the service RETURNS failure instead of raising it
-        Ingestion can fail partway (bad embedding model, DB hiccup). Rather than
-        throwing, `ingest_document` catches the error, marks the document FAILED
-        in the database, and returns an IngestionResultResponse whose `status` is
-        FAILED and whose `error` explains why. So on the HTTP side there's
-        nothing to catch here — we return the result as-is, and the client reads
-        `status`/`error` to see what happened.
-
-        For this phase that's deliberately simple: a 201 means "we processed your
-        upload", and the body tells the client whether ingestion COMPLETED or
-        FAILED. If a later phase wants a failed ingestion to be a non-2xx HTTP
-        status instead, that's where we'd inspect `result.status` and raise an
-        HTTPException — but keeping one consistent response shape is fine now.
+    Kept for programmatic/text ingestion. The admin UI uses /knowledge/upload
+    with a .docx file instead.
     """
-    result = knowledge_service.ingest_document(payload.title, payload.text)
-    return result
+    return knowledge_service.ingest_document(payload.title, payload.text)
+
+
+def _extract_docx_text(raw: bytes) -> str:
+    """Pull the plain text out of a .docx file's bytes.
+
+    NEW CONCEPT: a .docx is a zip of XML, not plain text. python-docx opens it
+    and gives us the paragraphs; we join them with newlines to rebuild readable
+    text. We read from an in-memory buffer (io.BytesIO) so nothing touches disk.
+    """
+    document = docx.Document(io.BytesIO(raw))
+    return "\n".join(p.text for p in document.paragraphs)
+
+
+@router.post("/upload", response_model=IngestionResultResponse, status_code=status.HTTP_201_CREATED)
+async def upload_knowledge_file(
+    file: UploadFile = File(..., description="A .docx document to ingest."),
+    title: str | None = Form(None, description="Optional title; defaults to the file name."),
+) -> IngestionResultResponse:
+    """Ingest an uploaded .docx file into the knowledge base (admin).
+
+    NEW CONCEPT: multipart file upload. Unlike JSON endpoints, this receives a
+    FILE via multipart/form-data. FastAPI's UploadFile gives us the filename and
+    the bytes. We only support .docx for now (per the agreed scope).
+
+    Flow: validate extension -> read bytes -> extract text -> ingest (which is
+    replace-by-title). The ingested document's title defaults to the uploaded
+    file name (without .docx) if the client doesn't supply one.
+    """
+    filename = file.filename or "document.docx"
+    if not filename.lower().endswith(".docx"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .docx files are supported right now.",
+        )
+
+    raw = await file.read()
+    try:
+        text = _extract_docx_text(raw)
+    except Exception as exc:  # noqa: BLE001 - surface a clean error to the client
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not read the .docx file: {exc}",
+        ) from exc
+
+    if not text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The document appears to be empty - no text could be extracted.",
+        )
+
+    # Title: use the provided one, else the file name without its .docx suffix.
+    resolved_title = (title or "").strip() or filename[: -len(".docx")]
+
+    return knowledge_service.ingest_document(resolved_title, text)
+
+
+@router.get("", response_model=list[KnowledgeDocumentResponse])
+def list_knowledge_documents() -> list[KnowledgeDocumentResponse]:
+    """List every knowledge document, newest first (admin KB page)."""
+    docs = knowledge_service.list_documents()
+    return [KnowledgeDocumentResponse(**d.model_dump()) for d in docs]
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_knowledge_document(document_id: str) -> None:
+    """Delete a document and all of its chunks. 204 = success, no body."""
+    knowledge_service.delete_document(document_id)
+    return None

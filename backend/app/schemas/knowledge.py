@@ -1,4 +1,4 @@
-"""Knowledge API schemas (Phase 2 — RAG).
+﻿"""Knowledge API schemas (Phase 2 â€” RAG).
 
 NEW CONCEPT: model vs schema (and why we keep them apart)
     - A *model* (app/models/knowledge.py) is how our data looks INSIDE the app
@@ -13,7 +13,7 @@ NEW CONCEPT: model vs schema (and why we keep them apart)
       - we never leak internals (like raw embedding vectors) over the API,
       - we can change how we store data without breaking the public contract.
 
-    This mirrors app/schemas/conversation.py — same pattern, different feature.
+    This mirrors app/schemas/conversation.py â€” same pattern, different feature.
 
 FastAPI uses these schemas to:
   - validate incoming JSON automatically (wrong/missing fields -> clear 422 error),
@@ -25,6 +25,8 @@ These two shapes support the planned `POST /knowledge` endpoint (task 10.1):
   - IngestionResultResponse -> what we send back after ingestion runs.
 """
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 from app.models.knowledge import IngestionStatus
@@ -34,8 +36,8 @@ class KnowledgeUploadRequest(BaseModel):
     """What a client sends to add a document to the knowledge base.
 
     Just the raw material for ingestion: a human-readable `title` and the
-    document's `text`. Everything else — the generated id, the ingestion
-    `status`, how many chunks we create, the embeddings — is decided by the
+    document's `text`. Everything else â€” the generated id, the ingestion
+    `status`, how many chunks we create, the embeddings â€” is decided by the
     SERVER during ingestion, so the client can't (and shouldn't) set it.
 
     NEW CONCEPT: why text-only for now?
@@ -68,7 +70,7 @@ class IngestionResultResponse(BaseModel):
       - status:       reuses the SAME IngestionStatus enum as the domain model,
                       so "completed"/"failed"/"pending" mean exactly one thing
                       across the whole app (no duplicate, drifting definitions).
-      - chunk_count:  how many searchable chunks we created from the text — a
+      - chunk_count:  how many searchable chunks we created from the text â€” a
                       quick signal that ingestion actually did something.
       - error:        a human-readable reason when `status` is FAILED (Req 9.6);
                       None on success.
@@ -79,3 +81,20 @@ class IngestionResultResponse(BaseModel):
     status: IngestionStatus
     chunk_count: int
     error: str | None = None
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    """What we send back when listing knowledge documents (admin KB page).
+
+    This describes a stored document WITHOUT its chunks or embeddings â€” just
+    enough for the admin to see what's in the knowledge base and manage it.
+    """
+
+    id: str
+    title: str
+    source: str
+    status: IngestionStatus
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
