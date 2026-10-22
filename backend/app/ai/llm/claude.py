@@ -21,8 +21,12 @@ from app.core.config import get_settings
 # Kept simple for Phase 4; later phases will enrich it with company policy and
 # retrieved knowledge (RAG).
 SYSTEM_PROMPT = (
-    "You are an internal IT support assistant. Help employees troubleshoot IT "
-    "issues with clear, step-by-step guidance. If you are unsure, say so."
+    "You are an internal IT support assistant. You must answer ONLY using the "
+    "company knowledge provided to you in the system prompt. Do NOT use general "
+    "knowledge or make up steps. If the provided knowledge does not contain the "
+    "answer, say you don't have that information in the knowledge base and offer "
+    "to raise a ticket for the IT team. Give clear, step-by-step guidance drawn "
+    "strictly from the provided company knowledge."
 )
 
 
@@ -61,16 +65,24 @@ def _build_system_prompt(context: str) -> str:
     prompt unchanged so Claude still answers normally.
     """
     if not context or not context.strip():
+        # GROUNDED-ONLY: with no context there is nothing approved to answer
+        # from. (In practice the agent graph skips calling Claude at all in this
+        # case - see the hard guard in graph.py - so this is a belt-and-braces
+        # fallback.) We still return the strict base prompt.
         return SYSTEM_PROMPT
 
-    # Append the retrieved knowledge as its own clearly labelled section. Telling
-    # Claude where the text came from helps it prefer OUR documents over its
-    # general training when answering.
+    # Context is present: instruct Claude to answer STRICTLY from it and refuse
+    # to fall back to general knowledge. If the snippets don't actually cover
+    # the question, Claude should say so rather than invent an answer.
     return (
         f"{SYSTEM_PROMPT}\n\n"
-        "Use the following company knowledge to answer. Prefer it over general "
-        "knowledge, and if it doesn't cover the question, say so:\n\n"
-        f"{context}"
+        "Answer the user's question using ONLY the company knowledge below. "
+        "Do not add steps from general knowledge. If the knowledge below does "
+        "not contain the answer, say you don't have that information in the "
+        "knowledge base and offer to raise a ticket.\n\n"
+        "=== COMPANY KNOWLEDGE ===\n"
+        f"{context}\n"
+        "=== END COMPANY KNOWLEDGE ==="
     )
 
 
